@@ -23,11 +23,14 @@ const requestNotificationPermission = async () => {
         if (perm === "granted") {
             try {
                 const registration = await navigator.serviceWorker.register("/service-worker.js");
-                const subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY)
-                });
-                await axiosInstance.post("/auth/push-subscribe", { subscription });
+                const existingSub = await registration.pushManager.getSubscription();
+                if (!existingSub) {
+                    const subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY)
+                    });
+                    await axiosInstance.post("/auth/push-subscribe", { subscription });
+                }
             } catch (err) {
                 console.log("Push subscription failed", err);
             }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import {
     Image, Send, X, MessageSquare,
     ArrowLeft, Smile, Mic, Square,
-    Loader2, Phone, Video, Trash2
+    Loader2, Phone, Video, Trash2, Search
 } from "lucide-react"
 import toast from "react-hot-toast"
 import useAuthStore from "../../src/store/useAuthStore"
@@ -38,7 +38,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
         messages, getMessages, sendMessage, deleteMessage, addReaction,
         isMessagesLoading, subscribeToMessages, unsubscribeFromMessages,
         typingUsers, markMessagesAsSeen,
-        hasMore, isLoadingMore, loadMoreMessages
+        hasMore, isLoadingMore, loadMoreMessages, searchTextMessages
     } = useChatStore()
     const { authUser, onlineUsers } = useAuthStore()
     const { startOutgoingCall } = useCallStore()
@@ -49,6 +49,40 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const [sending, setSending] = useState(false)
     const [replyTo, setReplyTo] = useState(null)
     const [showEmoji, setShowEmoji] = useState(false)
+
+    // Search state
+    const [searchOpen, setSearchOpen] = useState(false)
+    const [searchQuery, setSearchQuery] = useState("")
+    const [searchResults, setSearchResults] = useState([])
+
+    // Debounced search trigger
+    useEffect(() => {
+        if (!searchQuery.trim()) {
+            setSearchResults([]);
+            return;
+        }
+        const timer = setTimeout(async () => {
+            const results = await searchTextMessages(selectedUser._id, searchQuery);
+            setSearchResults(results || []);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchQuery, selectedUser?._id]);
+
+    const scrollToMessage = (msgId) => {
+        const msgElement = document.getElementById(`msg-${msgId}`);
+        if (msgElement) {
+            msgElement.scrollIntoView({ behavior: "smooth", block: "center" });
+            const bubble = msgElement.querySelector(".chat-bubble");
+            if (bubble) {
+                bubble.classList.add("flash-highlight");
+                setTimeout(() => {
+                    bubble.classList.remove("flash-highlight");
+                }, 1500);
+            }
+        } else {
+            toast.error("Message is not loaded in current view. Scroll up to load older messages.");
+        }
+    }
 
     // Custom hooks
     const { isRecording, recordingTime, audioBase64, startRecording, stopRecording, cancelRecording, clearAudio } = useRecording()
@@ -200,6 +234,13 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
                 </div>
                 <div className="ml-auto flex items-center gap-1">
                     <button 
+                        onClick={() => { setSearchOpen(!searchOpen); setSearchResults([]); setSearchQuery(""); }}
+                        className={`btn btn-ghost btn-circle btn-sm text-base-content/70 hover:text-primary transition-colors ${searchOpen ? "text-primary bg-base-200" : ""}`}
+                        title="Search Messages"
+                    >
+                        <Search className="w-5 h-5" />
+                    </button>
+                    <button 
                         onClick={() => startOutgoingCall(selectedUser._id, selectedUser.name, "audio")}
                         className="btn btn-ghost btn-circle btn-sm text-base-content/70 hover:text-primary transition-colors"
                         title="Voice Call"
@@ -215,6 +256,44 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
                     </button>
                 </div>
             </div>
+
+            {searchOpen && (
+                <div className="flex flex-col border-b border-base-200 bg-base-100 shrink-0 sticky top-14 z-10">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-base-200 border-b border-base-300 shadow-inner">
+                        <input
+                            type="text"
+                            placeholder="Search messages in this chat..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="input input-sm input-bordered flex-1 focus:outline-none"
+                            autoFocus
+                        />
+                        <button onClick={() => { setSearchOpen(false); setSearchResults([]); setSearchQuery(""); }} className="btn btn-sm btn-ghost btn-circle">
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                    {searchResults.length > 0 && (
+                        <div className="max-h-40 overflow-y-auto py-1.5 px-3 border-t border-base-300 space-y-1">
+                            <p className="text-xs text-base-content/40 mb-1">{searchResults.length} results found:</p>
+                            {searchResults.map((res) => (
+                                <button
+                                    key={res._id}
+                                    onClick={() => scrollToMessage(res._id)}
+                                    className="w-full text-left text-xs p-1.5 rounded hover:bg-base-200 block truncate"
+                                >
+                                    <span className="font-semibold text-primary">{res.senderId === authUser._id ? "You" : selectedUser.name}: </span>
+                                    <span>{res.message}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {searchQuery && searchResults.length === 0 && (
+                        <div className="px-4 py-2 text-xs text-base-content/40">
+                            No results found
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-1 overscroll-contain">
                 {isMessagesLoading ? (

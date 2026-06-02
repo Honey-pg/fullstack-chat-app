@@ -14,6 +14,15 @@ import messageRoutes from "./routes/message.route.js";
 import { app, server } from "./lib/socket.js";
 
 const PORT = process.env.PORT || 5001;
+
+const REQUIRED_ENV_VARS = ["MONGODB_URL", "JWT_SECRETKEY"];
+for (const envVar of REQUIRED_ENV_VARS) {
+    if (!process.env[envVar]) {
+        console.error(`FATAL ERROR: Environment variable ${envVar} is missing.`);
+        process.exit(1);
+    }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -35,8 +44,16 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+const messageLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 60,
+    message: { message: "Too many messages sent, please slow down" },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api/messages", messageRoutes);
+app.use("/api/messages", messageLimiter, messageRoutes);
 
 if (process.env.NODE_ENV === "production") {
     const frontendDist = path.join(__dirname, "../../frontend/dist");

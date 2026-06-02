@@ -8,7 +8,7 @@ const formatTime = (d) =>
 // Single message bubble with avatar, media, reactions, and read receipts
 export default function MessageBubble({ msg, isMine, showTime, selectedUser, isOnline, authUser, onContextMenu, onTouchStart, onTouchEnd, onReact }) {
     return (
-        <div key={msg._id}>
+        <div key={msg._id} id={`msg-${msg._id}`}>
             {showTime && (
                 <p className="text-center text-xs text-base-content/30 my-3">
                     {formatTime(msg.createdAt)}

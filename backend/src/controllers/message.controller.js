@@ -94,6 +94,9 @@ export async function searchUsers(req, res) {
 export async function getMessages(req, res) {
     try {
         const { id: receiverId } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+            return res.status(400).json({ message: "Invalid receiver user ID format" });
+        }
         const senderId = req.userId;
         const limit = Math.min(parseInt(req.query.limit) || 30, 100);
         const beforeId = req.query.before;
@@ -133,10 +136,19 @@ export async function sendMessage(req, res) {
     try {
         const { id: receiverId } = req.params;
         const senderId = req.userId;
+
+        if (senderId === receiverId) {
+            return res.status(400).json({ message: "You cannot send messages to yourself" });
+        }
         const { message, image, audio, replyTo } = req.body;
 
         if (!message?.trim() && !image && !audio) {
             return res.status(400).json({ message: "Message content cannot be empty" });
+        }
+
+        const receiverExists = await User.findById(receiverId);
+        if (!receiverExists) {
+            return res.status(404).json({ message: "Receiver user not found" });
         }
 
         let imageUrl = "";
@@ -180,6 +192,11 @@ export async function sendMessage(req, res) {
                     await webpush.sendNotification(receiverUser.pushSubscription, payload);
                 } catch (pushErr) {
                     console.error("Web push error:", pushErr.message);
+                    if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
+                        receiverUser.pushSubscription = null;
+                        await receiverUser.save();
+                        console.log(`Cleared expired push subscription for user ${receiverId}`);
+                    }
                 }
             }
         }
@@ -279,3 +296,31 @@ export async function reactToMessage(req, res) {
         res.status(500).json({ message: "Could not update reaction" });
     }
 }
+
+export async function searchTextMessages(req, res) {
+    try {
+        const { id: partnerId } = req.params;
+        const { q = "" } = req.query;
+        if (!mongoose.Types.ObjectId.isValid(partnerId)) {
+            return res.status(400).json({ message: "Invalid partner user ID format" });
+        }
+        if (!q.trim()) return res.status(200).json([]);
+
+        const senderId = req.userId;
+        const safeQuery = escapeRegex(q.trim());
+
+        const messages = await Message.find({
+            $or: [
+                { senderId, receiverId: partnerId },
+                { senderId: partnerId, receiverId: senderId }
+            ],
+            message: { $regex: safeQuery, $options: "i" }
+        }).sort({ createdAt: 1 });
+
+        res.status(200).json(messages);
+    } catch (err) {
+        console.error("searchTextMessages:", err.message);
+        res.status(500).json({ message: "Could not search messages" });
+    }
+}
+

@@ -301,6 +301,16 @@ const useChatStore = create((set, get) => ({
         }
     },
 
+    searchTextMessages: async (userId, query) => {
+        try {
+            const res = await axiosInstance.get(`/messages/search-text/${userId}?q=${encodeURIComponent(query)}`);
+            return res.data;
+        } catch {
+            toast.error("Text search failed");
+            return [];
+        }
+    },
+
     setSelectedUser: (user) => {
         if (!user) return set({ selectedUser: null, messages: [] });
         const current = get().selectedUser;
@@ -317,4 +327,4 @@ const useChatStore = create((set, get) => ({
     },
 }));
 
-export default useChatStore;
+export default useChatStore;

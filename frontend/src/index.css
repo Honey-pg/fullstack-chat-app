@@ -66,3 +66,12 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
+
+@keyframes flash-highlight {
+  0%, 100% { background-color: var(--chat-bubble-bg, oklch(var(--n))); }
+  50% { background-color: oklch(var(--a) / 0.5); }
+}
+
+.flash-highlight {
+  animation: flash-highlight 1.5s ease-in-out;
+}
