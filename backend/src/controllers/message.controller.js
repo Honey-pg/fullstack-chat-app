@@ -6,10 +6,33 @@ import { io, getReceiverSocketIds } from "../lib/socket.js";
 import webpush from "../lib/webpush.js";
 
 // ── Helpers ──────────────────────────────────────────────────────
+/**
+ * Escapes special regex characters in a string to prevent ReDoS injection.
+ * @param {string} str - The raw input string.
+ * @returns {string} - The safely escaped string.
+ */
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * Validates and sanitizes search queries to prevent abuse.
+ * @param {any} query - The raw query from the request.
+ * @param {number} maxLength - Maximum allowed characters.
+ * @returns {string|null} - Sanitized string or null if invalid.
+ */
+const sanitizeSearchQuery = (query, maxLength = 100) => {
+    if (typeof query !== "string") return null;
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length > maxLength) return null;
+    return escapeRegex(trimmed);
+};
+
 // ── GET /messages/users ──────────────────────────────────────────
-// Returns conversation partners with lastMessage + unreadCount, sorted by recency
+/**
+ * Retrieves a list of users the current user has conversed with.
+ * Includes the latest message snippet and unread message counts.
+ * * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function getUsers(req, res) {
     const userId = new mongoose.Types.ObjectId(req.userId);
     try {
@@ -70,18 +93,24 @@ export async function getUsers(req, res) {
 }
 
 // ── GET /messages/search?q= ──────────────────────────────────────
+/**
+ * Searches across the global user base by name.
+ * Hardened against ReDoS and oversized payload attacks.
+ * * @param {Object} req - Express request object containing `q` query.
+ * @param {Object} res - Express response object.
+ */
 export async function searchUsers(req, res) {
     try {
-        const { q = "" } = req.query;
-        if (!q.trim()) return res.status(200).json([]);
-
-        // Escape special regex characters to prevent ReDoS
-        const safeQuery = escapeRegex(q.trim());
+        const safeQuery = sanitizeSearchQuery(req.query.q);
+        
+        // Return empty array if query is missing, empty, invalid type, or too long
+        if (!safeQuery) return res.status(200).json([]);
 
         const users = await User.find({
             _id: { $ne: req.userId },
             name: { $regex: safeQuery, $options: "i" },
         }).select("-password").limit(10);
+        
         res.status(200).json(users);
     } catch (err) {
         console.error("searchUsers:", err.message);
@@ -90,7 +119,11 @@ export async function searchUsers(req, res) {
 }
 
 // ── GET /messages/:id?before=&limit= ────────────────────────────
-// Cursor-based pagination: returns `limit` messages older than `before`
+/**
+ * Fetches message history for a specific conversation using cursor-based pagination.
+ * * @param {Object} req - Express request object containing receiver `id` param.
+ * @param {Object} res - Express response object.
+ */
 export async function getMessages(req, res) {
     try {
         const { id: receiverId } = req.params;
@@ -132,6 +165,12 @@ export async function getMessages(req, res) {
 }
 
 // ── POST /messages/send/:id ──────────────────────────────────────
+/**
+ * Handles sending text, image, and voice messages to a specific user.
+ * Triggers socket events or offline web-push notifications.
+ * * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function sendMessage(req, res) {
     try {
         const { id: receiverId } = req.params;
@@ -209,6 +248,12 @@ export async function sendMessage(req, res) {
 }
 
 // ── DELETE /messages/:id ─────────────────────────────────────────
+/**
+ * Deletes a message and emits a deletion event to relevant sockets.
+ * Enforces ownership validation before deletion.
+ * * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function deleteMessage(req, res) {
     try {
         const { id } = req.params;
@@ -235,6 +280,11 @@ export async function deleteMessage(req, res) {
 }
 
 // ── PUT /messages/mark-seen ──────────────────────────────────────
+/**
+ * Marks all unread messages in a conversation as seen.
+ * * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function markMessagesAsSeen(req, res) {
     try {
         const { senderId } = req.body;
@@ -257,6 +307,11 @@ export async function markMessagesAsSeen(req, res) {
     }
 }
 
+/**
+ * Toggles a user's emoji reaction on a specific message.
+ * * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function reactToMessage(req, res) {
     try {
         const { id } = req.params;
@@ -275,8 +330,7 @@ export async function reactToMessage(req, res) {
             // Remove reaction
             message.reactions.splice(existingReactionIndex, 1);
         } else {
-            // Remove existing reaction by same user (if we only want 1 reaction per user) or just push it. 
-            // We'll allow multiple emojis per user like Slack/Discord, but usually a single user has unique emojis.
+            // Add new reaction
             message.reactions.push({ emoji, userId });
         }
 
@@ -297,17 +351,25 @@ export async function reactToMessage(req, res) {
     }
 }
 
+/**
+ * Searches specific conversation history for message content.
+ * Hardened against ReDoS and oversized payload attacks.
+ * * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function searchTextMessages(req, res) {
     try {
         const { id: partnerId } = req.params;
-        const { q = "" } = req.query;
         if (!mongoose.Types.ObjectId.isValid(partnerId)) {
             return res.status(400).json({ message: "Invalid partner user ID format" });
         }
-        if (!q.trim()) return res.status(200).json([]);
+
+        const safeQuery = sanitizeSearchQuery(req.query.q);
+        
+        // Return empty array if query is missing, empty, invalid type, or too long
+        if (!safeQuery) return res.status(200).json([]);
 
         const senderId = req.userId;
-        const safeQuery = escapeRegex(q.trim());
 
         const messages = await Message.find({
             $or: [
@@ -323,4 +385,3 @@ export async function searchTextMessages(req, res) {
         res.status(500).json({ message: "Could not search messages" });
     }
 }
-
