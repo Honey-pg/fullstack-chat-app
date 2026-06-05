@@ -1,4 +1,3 @@
-import React, { Component } from "react";
 import React, { Component, useState, useRef, useEffect } from "react";
 import useChatStore from "../src/store/useChatStore";
 import Sidebar from "../components/chat/Sidebar";
