@@ -61,14 +61,24 @@ export default function MessageBubble({ msg, isMine, showTime, selectedUser, isO
                     <div className={`flex items-center justify-end gap-1 mt-1 text-[10px] ${isMine ? "text-primary-content/70" : "text-base-content/50"}`}>
                         <span>{formatTime(msg.createdAt)}</span>
                         {isMine && (
-                            msg.status === "seen" ? (
-                                <CheckCheck className="w-3.5 h-3.5 text-info" />
-                            ) : msg.status === "delivered" ? (
-                                <CheckCheck className="w-3.5 h-3.5" />
-                            ) : (
-                                <Check className="w-3.5 h-3.5" />
-                            )
-                        )}
+    <span
+        title={
+            msg.status === "seen"
+                ? "Read"
+                : msg.status === "delivered"
+                ? "Delivered"
+                : "Sent"
+        }
+    >
+        {msg.status === "seen" ? (
+            <CheckCheck className="w-3.5 h-3.5 text-info" />
+        ) : msg.status === "delivered" ? (
+            <CheckCheck className="w-3.5 h-3.5" />
+        ) : (
+            <Check className="w-3.5 h-3.5" />
+        )}
+    </span>
+)}
                     </div>
                 </div>
                 {isMine && (
