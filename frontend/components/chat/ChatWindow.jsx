@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import {
     Image, Send, X, MessageSquare,
     ArrowLeft, Smile, Mic, Square,
-    Loader2, Phone, Video, Trash2, Search
+    Loader2, Phone, Video, Trash2,
+    Search, Clock
 } from "lucide-react"
 import toast from "react-hot-toast"
 import useAuthStore from "../../src/store/useAuthStore"
@@ -438,6 +439,15 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
                             className={`btn btn-ghost btn-sm btn-square shrink-0 ${showEmoji ? "text-primary" : "text-base-content/50"}`}
                             title="Emoji"
                         >
+                            <button
+    onClick={() =>
+        toast.success("Message scheduling coming soon!")
+    }
+    className="btn btn-ghost btn-sm btn-square shrink-0"
+    title="Schedule Message"
+>
+    <Clock className="w-4 h-4 text-base-content/50" />
+</button>
                             <Smile className="w-4 h-4" />
                         </button>
                         <textarea
