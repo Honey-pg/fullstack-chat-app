@@ -3,7 +3,7 @@ import {
     Image, Send, X, MessageSquare,
     ArrowLeft, Smile, Mic, Square,
     Loader2, Phone, Video, Trash2,
-    Search, Clock
+    Search, FileText
 } from "lucide-react"
 import toast from "react-hot-toast"
 import useAuthStore from "../../src/store/useAuthStore"
@@ -281,6 +281,12 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
                     >
                         <Video className="w-5 h-5" />
                     </button>
+                    <button
+    className="btn btn-ghost btn-circle btn-sm text-base-content/70 hover:text-primary transition-colors"
+    title="Generate Conversation Summary"
+>
+    <FileText className="w-5 h-5" />
+</button>
                 </div>
             </div>
 
