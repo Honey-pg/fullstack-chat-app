@@ -222,6 +222,9 @@ export async function sendMessage(req, res) {
         if (!receiverId) {
             return res.status(400).json({ message: "Receiver ID is required" });
         }
+        if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+            return res.status(400).json({ message: "Invalid receiver user ID format" });
+        }
         const senderId = req.userId;
 
         if (senderId === receiverId) {
