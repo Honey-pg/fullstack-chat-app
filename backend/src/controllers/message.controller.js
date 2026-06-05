@@ -309,7 +309,9 @@ export async function sendMessage(req, res) {
 
         if (receiverSocketIds.length > 0) {
             receiverSocketIds.forEach(socketId => io.to(socketId).emit("newMessage", newMessage));
-        } else if (receiverUser.pushSubscription) {
+        }
+        
+        if (receiverUser.pushSubscription) {
             const senderUser = await User.findById(senderId).select("name");
             const payload = JSON.stringify({
                 title: `New message from ${senderUser.name}`,
