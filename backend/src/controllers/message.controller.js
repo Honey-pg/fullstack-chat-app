@@ -261,6 +261,10 @@ export async function sendMessage(req, res) {
         }
         const { message, image, audio, replyTo } = req.body;
 
+        if (replyTo && !mongoose.Types.ObjectId.isValid(replyTo)) {
+            return res.status(400).json({ message: "Invalid replyTo ID format" });
+        }
+
         if (!message?.trim() && !image && !audio) {
             return res.status(400).json({ message: "Message content cannot be empty" });
         }
@@ -309,7 +313,9 @@ export async function sendMessage(req, res) {
 
         if (receiverSocketIds.length > 0) {
             receiverSocketIds.forEach(socketId => io.to(socketId).emit("newMessage", newMessage));
-        } else if (receiverUser.pushSubscription) {
+        }
+        
+        if (receiverUser.pushSubscription) {
             const senderUser = await User.findById(senderId).select("name");
             const payload = JSON.stringify({
                 title: `New message from ${senderUser.name}`,
@@ -379,6 +385,9 @@ export async function deleteMessage(req, res) {
 export async function markMessagesAsSeen(req, res) {
     try {
         const { senderId } = req.body;
+        if (!senderId || !mongoose.Types.ObjectId.isValid(senderId)) {
+            return res.status(400).json({ message: "Invalid sender ID format" });
+        }
         const receiverId = req.userId;
 
         const result = await Message.updateMany(
