@@ -70,7 +70,17 @@ export default function MessageBubble({ msg, isMine, showTime, selectedUser, isO
     </>
 )}
                     {/* GSSoC Issue #41 Fix */}
-{msg.message ? <p className="text-sm">{String(msg.message)}</p> : null}
+{msg.message && (
+    <div>
+        <p className="text-sm">{String(msg.message)}</p>
+
+        {msg.edited && (
+            <span className="text-[10px] italic opacity-70">
+                (edited)
+            </span>
+        )}
+    </div>
+)}
 
 {msg.reactions && msg.reactions.length >= 3 && (
     <div className="text-[10px] text-warning font-semibold mb-1">
