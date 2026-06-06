@@ -87,7 +87,7 @@ export default function ProfilePage() {
                         </div>
                         <div className="ml-4 mb-4">
                             <h2 className="text-3xl font-bold text-white">{user?.name}</h2>
-                            <p className="text-base-100/80">{user?.email}</p>
+                            <p className="text-white">{user?.email}</p>
                         </div>
                     </div>
                 </div>
