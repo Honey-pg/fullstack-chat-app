@@ -4,6 +4,13 @@ import axiosInstance from "../../lib/axios";
 import { getSocket } from "../../lib/socket";
 import useAuthStore from "./useAuthStore";
 
+/**
+ * MEMORY LOCK QUEUE: 
+ * Protects against async race conditions by ensuring rapid UI clicks
+ * on emojis are processed in exact FIFO (First-In, First-Out) sequence per message.
+ */
+const reactionQueues = {};
+
 const useChatStore = create((set, get) => ({
     users: [],
     selectedUser: null,
@@ -136,16 +143,43 @@ const useChatStore = create((set, get) => ({
         }
     },
 
+    /**
+     * ATOMIC ACTION: addReaction
+     * Pushes reaction requests into an isolated queue to prevent UI flickering
+     * and database overwrite race conditions during rapid spam clicking.
+     */
     addReaction: async (messageId, emoji) => {
-        try {
-            const res = await axiosInstance.post(`/messages/${messageId}/react`, { emoji });
-            set((state) => ({
-                messages: state.messages.map((msg) =>
-                    msg._id === messageId ? { ...msg, reactions: res.data } : msg
-                ),
-            }));
-        } catch (error) {
-            toast.error("Failed to add reaction");
+        // 1. Initialize local queue for this specific message
+        if (!reactionQueues[messageId]) {
+            reactionQueues[messageId] = [];
+        }
+
+        // 2. Define the exact network mutation task closure
+        const executeReactionTask = async () => {
+            try {
+                const res = await axiosInstance.post(`/messages/${messageId}/react`, { emoji });
+                set((state) => ({
+                    messages: state.messages.map((msg) =>
+                        msg._id === messageId ? { ...msg, reactions: res.data } : msg
+                    ),
+                }));
+            } catch (error) {
+                toast.error("Failed to synchronize reaction");
+            }
+        };
+
+        // 3. Push this task thread into the message's execution line
+        reactionQueues[messageId].push(executeReactionTask);
+
+        // 4. Start the sequencer if this is the only pending payload
+        if (reactionQueues[messageId].length === 1) {
+            while (reactionQueues[messageId].length > 0) {
+                const currentTask = reactionQueues[messageId][0];
+                await currentTask(); // Enforce strict sequential execution
+                reactionQueues[messageId].shift(); // Clear task upon resolution
+            }
+            // Free the memory map once queue is fully drained
+            delete reactionQueues[messageId];
         }
     },
 
@@ -170,33 +204,25 @@ const useChatStore = create((set, get) => ({
             const { selectedUser, messages, users } = get();
             const authUser = useAuthStore.getState().authUser;
 
-            // Normalize all IDs to strings to avoid ObjectId vs string mismatches
             const msgSenderId   = message.senderId?.toString();
             const msgReceiverId = message.receiverId?.toString();
             const selUserId     = selectedUser?._id?.toString();
             const authUserId2   = authUser?._id?.toString();
 
-            // If message is from the selected user OR sent by me to the selected user (from another device)
             const isFromSelectedUser = !!selUserId && msgSenderId === selUserId;
             const isToSelectedUser   = !!selUserId && msgSenderId === authUserId2 && msgReceiverId === selUserId;
             
             if (isFromSelectedUser || isToSelectedUser) {
-                // Prevent duplicate optimistic messages on the sending device
                 const msgExists = messages.some(m => m._id?.toString() === message._id?.toString());
                 if (!msgExists) {
                     set({ messages: [...messages, message] });
                 }
                 
-                // Mark as seen if it's from them (and chat is open)
                 if (isFromSelectedUser) {
                     get().markMessagesAsSeen(selectedUser._id);
                 }
             }
 
-            // --- Sidebar update ---
-            // Identify the "other person" in the conversation regardless of who sent it.
-            // If I sent it (from another device), the other person is the receiver.
-            // If someone else sent it to me, the other person is the sender.
             const iSentThis = msgSenderId === authUserId2;
             const otherUserId = iSentThis ? msgReceiverId : msgSenderId;
             const otherUserInSidebar = users.find((u) => u._id?.toString() === otherUserId);
@@ -215,9 +241,6 @@ const useChatStore = create((set, get) => ({
                                       senderId: message.senderId,
                                       createdAt: message.createdAt,
                                   },
-                                  // Increment unread only if:
-                                  //   - I did NOT send this message (i.e. it came from the other person)
-                                  //   - AND this is not the currently open chat
                                   unreadCount:
                                       iSentThis || state.selectedUser?._id?.toString() === otherUserId
                                           ? u.unreadCount
@@ -227,11 +250,9 @@ const useChatStore = create((set, get) => ({
                     ),
                 }));
             } else {
-                // Other person not in sidebar yet → refetch to include them
                 get().getUsers();
             }
 
-            // In-app notification for messages when tab is hidden
             if (document.visibilityState !== "visible" && Notification.permission === "granted") {
                 const sender = users.find((u) => u._id?.toString() === msgSenderId);
                 const senderName = sender?.name || "Someone";
@@ -261,7 +282,6 @@ const useChatStore = create((set, get) => ({
         });
 
         socket.on("messagesSeen", ({ receiverId }) => {
-            // receiverId is the person who saw our messages
             set((state) => ({
                 messages: state.messages.map((msg) =>
                     msg.receiverId === receiverId ? { ...msg, status: "seen" } : msg
@@ -316,7 +336,6 @@ const useChatStore = create((set, get) => ({
         const current = get().selectedUser;
         if (current?._id === user?._id) return;
 
-        // Clear unread count for this user when selecting them
         set((state) => ({
             selectedUser: user,
             messages: [],
@@ -327,4 +346,4 @@ const useChatStore = create((set, get) => ({
     },
 }));
 
-export default useChatStore;
+export default useChatStore;
