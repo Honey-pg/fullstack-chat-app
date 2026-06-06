@@ -16,12 +16,18 @@ export default function useTypingIndicator(receiverId) {
     // Reference lock flag to throttle repetitive outward socket streams
     const isTypingEmitRef = useRef(false);
 
+    // GSSoC Issue #51 Fix
+    const lastEmitRef = useRef(0);
+
     /**
      * Evaluates active user keystrokes and coordinates throttled state transmissions.
      * Prevents flood overflows by blocking outgoing keystroke events during active intervals.
      */
     const emitTyping = useCallback(() => {
     const socket = getSocket();
+        
+        // Prevent event execution if socket links or receiver targets are unmapped
+        if (!socket || !receiverId) return;
 
     if (!socket || !receiverId) return;
 

@@ -9,6 +9,7 @@ import toast from "react-hot-toast"
 import useAuthStore from "../../src/store/useAuthStore"
 import useChatStore from "../../src/store/useChatStore"
 import useCallStore from "../../src/store/useCallStore"
+import useBookmarkStore from "../../src/store/useBookmarkStore"
 import useRecording from "../../hooks/useRecording"
 import useTypingIndicator from "../../hooks/useTypingIndicator"
 import useContextMenu from "../../hooks/useContextMenu"
@@ -43,6 +44,11 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     } = useChatStore()
     const { authUser, onlineUsers } = useAuthStore()
     const { startOutgoingCall } = useCallStore()
+    const bookmarks = useBookmarkStore((state) => state.bookmarks)
+    const addBookmark = useBookmarkStore((state) => state.addBookmark)
+    const removeBookmark = useBookmarkStore((state) => state.removeBookmark)
+    const pendingBookmarkTarget = useBookmarkStore((state) => state.pendingBookmarkTarget)
+    const clearPendingBookmarkTarget = useBookmarkStore((state) => state.clearPendingBookmarkTarget)
 
     const [text, setText] = useState("")
     const [imagePreview, setImagePreview] = useState(null)
@@ -135,6 +141,13 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     }, [selectedUser, getMessages, subscribeToMessages, unsubscribeFromMessages])
 
     useEffect(() => {
+        if (!pendingBookmarkTarget || !selectedUser || messages.length === 0) return
+        if (selectedUser._id !== pendingBookmarkTarget.chatId) return
+        scrollToMessage(pendingBookmarkTarget.messageId)
+        clearPendingBookmarkTarget()
+    }, [pendingBookmarkTarget, selectedUser, messages.length, clearPendingBookmarkTarget])
+
+    useEffect(() => {
         if (selectedUser?._id && messages.length > 0) {
             const hasUnseen = messages.some(m => m.senderId === selectedUser._id && m.status !== "seen");
             if (hasUnseen) markMessagesAsSeen(selectedUser._id);
@@ -167,6 +180,32 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
             })
         }
     }, [hasMore, isLoadingMore, selectedUser, loadMoreMessages])
+
+    const handleBookmark = () => {
+        const message = contextMenu.message
+        if (!message) return
+
+        const currentBookmark = bookmarks.some((item) => item.id === message._id)
+        if (currentBookmark) {
+            removeBookmark(message._id)
+            toast.success("Bookmark removed")
+        } else {
+            const chatId = message.senderId === authUser._id ? message.receiverId : message.senderId
+            addBookmark({
+                id: message._id,
+                chatId,
+                senderId: message.senderId,
+                senderName: message.senderId === authUser._id ? authUser.name : selectedUser?.name || "Unknown",
+                content: message.message || "",
+                image: message.image || null,
+                audio: message.audio || null,
+                createdAt: message.createdAt,
+                bookmarkedAt: new Date().toISOString(),
+            })
+            toast.success("Message bookmarked")
+        }
+        closeMenu()
+    }
 
     const handleReply = () => { setReplyTo(contextMenu.message); closeMenu() }
     const handleCopy = () => {
@@ -485,40 +524,16 @@ const mediaMessages = messages.filter(
                 <div ref={bottomRef} />
             </div>
 
-            {showPoll && (
-    <div className="mx-4 mb-3 p-4 rounded-xl border border-base-300 bg-base-200">
-        <div className="flex items-center gap-2 mb-3">
-            <BarChart3 className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold">
-                Active Poll
-            </h3>
-        </div>
-
-        <p className="text-sm mb-3">
-            Which feature should be added next?
-        </p>
-
-        <div className="space-y-2">
-            <button className="btn btn-outline btn-sm w-full justify-start">
-                🌙 Dark Mode (12 votes)
-            </button>
-
-            <button className="btn btn-outline btn-sm w-full justify-start">
-                🎤 Voice Notes (8 votes)
-            </button>
-
-            <button className="btn btn-outline btn-sm w-full justify-start">
-                📊 Poll System (15 votes)
-            </button>
-        </div>
-
-        <div className="mt-3 text-xs opacity-60">
-            Poll expires in 24 hours
-        </div>
-    </div>
-)}
-
-            <ContextMenu menu={contextMenu} onClose={closeMenu} onReply={handleReply} onCopy={handleCopy} onDelete={handleDelete} onReact={handleReact} />
+            <ContextMenu
+                menu={contextMenu}
+                onClose={closeMenu}
+                onReply={handleReply}
+                onCopy={handleCopy}
+                onDelete={handleDelete}
+                onReact={handleReact}
+                onBookmark={handleBookmark}
+                isBookmarked={bookmarks.some((item) => item.id === contextMenu.message?._id)}
+            />
 
             {replyTo && (
                 <ReplyBar replyTo={replyTo} authUser={authUser} selectedUser={selectedUser} onCancel={() => setReplyTo(null)} />

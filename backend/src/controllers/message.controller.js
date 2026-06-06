@@ -15,6 +15,22 @@ import webpush from "../lib/webpush.js";
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
+ * Extracts the public ID from a Cloudinary secure URL.
+ * @param {string} url - The Cloudinary file URL.
+ * @returns {string|null} - The public ID or null.
+ */
+const extractPublicId = (url) => {
+    if (!url) return null;
+    try {
+        const parts = url.split("/");
+        const filename = parts.pop();
+        return filename.split(".")[0];
+    } catch {
+        return null;
+    }
+};
+
+/**
  * Validates and cleans search queries to protect against malicious input patterns.
  * @param {any} query - The raw query from the request.
  * @param {number} maxLength - Maximum allowed characters.
@@ -254,12 +270,19 @@ export async function sendMessage(req, res) {
         if (!receiverId) {
             return res.status(400).json({ message: "Receiver ID is required" });
         }
+        if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+            return res.status(400).json({ message: "Invalid receiver user ID format" });
+        }
         const senderId = req.userId;
 
         if (senderId === receiverId) {
             return res.status(400).json({ message: "You cannot send messages to yourself" });
         }
         const { message, image, audio, replyTo } = req.body;
+
+        if (replyTo && !mongoose.Types.ObjectId.isValid(replyTo)) {
+            return res.status(400).json({ message: "Invalid replyTo ID format" });
+        }
 
         if (!message?.trim() && !image && !audio) {
             return res.status(400).json({ message: "Message content cannot be empty" });
@@ -309,7 +332,9 @@ export async function sendMessage(req, res) {
 
         if (receiverSocketIds.length > 0) {
             receiverSocketIds.forEach(socketId => io.to(socketId).emit("newMessage", newMessage));
-        } else if (receiverUser.pushSubscription) {
+        }
+        
+        if (receiverUser.pushSubscription) {
             const senderUser = await User.findById(senderId).select("name");
             const payload = JSON.stringify({
                 title: `New message from ${senderUser.name}`,
@@ -355,6 +380,19 @@ export async function deleteMessage(req, res) {
         if (message.senderId.toString() !== senderId)
             return res.status(403).json({ message: "You can only delete your own messages" });
 
+        if (message.image) {
+            const publicId = extractPublicId(message.image);
+            if (publicId) {
+                await cloudinary.uploader.destroy(publicId).catch(err => console.error("Cloudinary image delete failed:", err));
+            }
+        }
+        if (message.audio) {
+            const publicId = extractPublicId(message.audio);
+            if (publicId) {
+                await cloudinary.uploader.destroy(publicId, { resource_type: "video" }).catch(err => console.error("Cloudinary audio delete failed:", err));
+            }
+        }
+
         await Message.findByIdAndDelete(id);
 
         const receiverSocketIds = getReceiverSocketIds(message.receiverId.toString());
@@ -379,6 +417,9 @@ export async function deleteMessage(req, res) {
 export async function markMessagesAsSeen(req, res) {
     try {
         const { senderId } = req.body;
+        if (!senderId || !mongoose.Types.ObjectId.isValid(senderId)) {
+            return res.status(400).json({ message: "Invalid sender ID format" });
+        }
         const receiverId = req.userId;
 
         const result = await Message.updateMany(
@@ -417,6 +458,13 @@ export async function reactToMessage(req, res) {
 
         const message = await Message.findById(id);
         if (!message) return res.status(404).json({ message: "Message not found" });
+
+        const isParticipant =
+            message.senderId.toString() === userId ||
+            message.receiverId.toString() === userId;
+        if (!isParticipant) {
+            return res.status(403).json({ message: "Forbidden: you are not a participant in this message conversation" });
+        }
 
         const existingReactionIndex = message.reactions.findIndex(
             (r) => r.userId.toString() === userId && r.emoji === emoji
