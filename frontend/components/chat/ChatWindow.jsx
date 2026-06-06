@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import {
-    Image, Send, X, MessageSquare,
-    ArrowLeft, Smile, Mic, Square,
-    Loader2, Phone, Video, Trash2,
-    Search, FileText,NotebookPen,
-    BarChart3
+    Image, Images, Send, X, MessageSquare,
+    ArrowLeft, Smile, Mic, Square,Loader2, 
+    Phone, Video, Trash2,Search, FileText,
+    NotebookPen,BarChart3
 } from "lucide-react"
 import toast from "react-hot-toast"
 import useAuthStore from "../../src/store/useAuthStore"
@@ -55,6 +54,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const [showPoll, setShowPoll] = useState(false)
     const [showNotes, setShowNotes] = useState(false)
     const [sharedNotes, setSharedNotes] = useState("")
+    const [showGallery, setShowGallery] = useState(false)
 
     // Search state
     const [searchOpen, setSearchOpen] = useState(false)
@@ -238,6 +238,7 @@ setShowSpamWarning(
     }
 
     const isOnline = selectedUser && onlineUsers.includes(selectedUser._id)
+    const sharedMedia = messages.filter(msg => msg.image)
 
     if (!selectedUser) return (
         <div className={`${isMobileHidden ? "hidden md:flex" : "flex"} flex-1 flex-col items-center justify-center bg-base-200 gap-4`}>
@@ -295,6 +296,18 @@ setShowSpamWarning(
                     >
                         <Video className="w-5 h-5" />
                     </button>
+
+                    <button
+    onClick={() => setShowGallery(!showGallery)}
+    className={`btn btn-ghost btn-circle btn-sm ${
+        showGallery
+            ? "text-primary"
+            : "text-base-content/70"
+    }`}
+    title="Media Gallery"
+>
+    <Images className="w-5 h-5" />
+</button>
 
                     <button
     onClick={() => setShowPoll(!showPoll)}
@@ -360,6 +373,34 @@ setShowSpamWarning(
                     )}
                 </div>
             )}
+
+            {showGallery && (
+    <div className="border-b border-base-200 bg-base-100 p-3">
+        <h3 className="font-semibold text-sm mb-3">
+            Shared Media Gallery
+        </h3>
+
+        <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+            {sharedMedia.map(media => (
+                <img
+                    key={media._id}
+                    src={media.image}
+                    alt="shared media"
+                    className="rounded-lg object-cover h-24 w-full cursor-pointer hover:scale-105 transition"
+                    onClick={() =>
+                        window.open(media.image, "_blank")
+                    }
+                />
+            ))}
+        </div>
+
+        {sharedMedia.length === 0 && (
+            <p className="text-xs text-base-content/50">
+                No shared media found
+            </p>
+        )}
+    </div>
+)}
 
             <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-1 overscroll-contain">
                 {showNotes && (
