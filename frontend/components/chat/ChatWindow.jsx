@@ -3,7 +3,8 @@ import {
     Image, Send, X, MessageSquare,
     ArrowLeft, Smile, Mic, Square,
     Loader2, Phone, Video, Trash2,
-    Search, FileText
+    Search, FileText,
+    BarChart3
 } from "lucide-react"
 import toast from "react-hot-toast"
 import useAuthStore from "../../src/store/useAuthStore"
@@ -51,6 +52,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const [replyTo, setReplyTo] = useState(null)
     const [showEmoji, setShowEmoji] = useState(false)
     const [showSpamWarning, setShowSpamWarning] = useState(false)
+    const [showPoll, setShowPoll] = useState(false)
 
     // Search state
     const [searchOpen, setSearchOpen] = useState(false)
@@ -291,6 +293,16 @@ setShowSpamWarning(
                     >
                         <Video className="w-5 h-5" />
                     </button>
+
+                    <button
+    onClick={() => setShowPoll(!showPoll)}
+    className={`btn btn-ghost btn-circle btn-sm ${
+        showPoll ? "text-primary" : "text-base-content/70"
+    }`}
+    title="Polls"
+>
+    <BarChart3 className="w-5 h-5" />
+</button>
                     <button
     className="btn btn-ghost btn-circle btn-sm text-base-content/70 hover:text-primary transition-colors"
     title="Generate Conversation Summary"
@@ -381,6 +393,39 @@ setShowSpamWarning(
                 )}
                 <div ref={bottomRef} />
             </div>
+
+            {showPoll && (
+    <div className="mx-4 mb-3 p-4 rounded-xl border border-base-300 bg-base-200">
+        <div className="flex items-center gap-2 mb-3">
+            <BarChart3 className="w-5 h-5 text-primary" />
+            <h3 className="font-semibold">
+                Active Poll
+            </h3>
+        </div>
+
+        <p className="text-sm mb-3">
+            Which feature should be added next?
+        </p>
+
+        <div className="space-y-2">
+            <button className="btn btn-outline btn-sm w-full justify-start">
+                🌙 Dark Mode (12 votes)
+            </button>
+
+            <button className="btn btn-outline btn-sm w-full justify-start">
+                🎤 Voice Notes (8 votes)
+            </button>
+
+            <button className="btn btn-outline btn-sm w-full justify-start">
+                📊 Poll System (15 votes)
+            </button>
+        </div>
+
+        <div className="mt-3 text-xs opacity-60">
+            Poll expires in 24 hours
+        </div>
+    </div>
+)}
 
             <ContextMenu menu={contextMenu} onClose={closeMenu} onReply={handleReply} onCopy={handleCopy} onDelete={handleDelete} onReact={handleReact} />
 
