@@ -93,12 +93,12 @@ export default function MessageBubble({ msg, isMine, showTime, selectedUser, isO
                 : String(msg.message)}
         </p>
 
-        <button
-            onClick={() =>
-                setShowTranslation(!showTranslation)
-            }
-            className="flex items-center gap-1 text-[10px] text-info mt-1"
-        >
+        <button 
+    key={emoji}
+    title={`${count} reaction${count > 1 ? "s" : ""}`}
+    onClick={(e) => { e.stopPropagation(); onReact(msg._id, emoji); }}
+    className={`text-xs px-1.5 py-0.5 rounded-full shadow-sm hover:scale-110 hover:shadow-md transition-all ${isMine ? "bg-primary-focus text-primary-content border border-white/20" : "bg-base-100 text-base-content border border-base-300"}`}
+>
             <Languages className="w-3 h-3" />
             {showTranslation
                 ? "Show Original"
