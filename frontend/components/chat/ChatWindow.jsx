@@ -3,7 +3,7 @@ import {
     Image, Send, X, MessageSquare,
     ArrowLeft, Smile, Mic, Square,
     Loader2, Phone, Video, Trash2,
-    Search, FileText,
+    Search, FileText,NotebookPen,
     BarChart3
 } from "lucide-react"
 import toast from "react-hot-toast"
@@ -53,6 +53,8 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const [showEmoji, setShowEmoji] = useState(false)
     const [showSpamWarning, setShowSpamWarning] = useState(false)
     const [showPoll, setShowPoll] = useState(false)
+    const [showNotes, setShowNotes] = useState(false)
+    const [sharedNotes, setSharedNotes] = useState("")
 
     // Search state
     const [searchOpen, setSearchOpen] = useState(false)
@@ -308,6 +310,15 @@ setShowSpamWarning(
     title="Generate Conversation Summary"
 >
     <FileText className="w-5 h-5" />
+    <button
+    onClick={() => setShowNotes(!showNotes)}
+    className={`btn btn-ghost btn-circle btn-sm ${
+        showNotes ? "text-primary" : "text-base-content/70"
+    }`}
+    title="Shared Notes"
+>
+    <NotebookPen className="w-5 h-5" />
+</button>
 </button>
                 </div>
             </div>
@@ -351,6 +362,32 @@ setShowSpamWarning(
             )}
 
             <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-1 overscroll-contain">
+                {showNotes && (
+    <div className="border-b border-base-200 p-3 bg-base-200">
+        <div className="flex justify-between items-center mb-2">
+            <h3 className="font-semibold text-sm">
+                Collaborative Notes
+            </h3>
+
+            <span className="badge badge-primary badge-sm">
+                Shared
+            </span>
+        </div>
+
+        <textarea
+            value={sharedNotes}
+            onChange={(e) =>
+                setSharedNotes(e.target.value)
+            }
+            placeholder="Write shared notes here..."
+            className="textarea textarea-bordered w-full h-32"
+        />
+
+        <div className="text-xs text-base-content/50 mt-2">
+            Changes are visible to all participants
+        </div>
+    </div>
+)}
                 {isMessagesLoading ? (
                     <div className="flex items-center justify-center h-full">
                         <span className="loading loading-spinner loading-md text-primary" />
