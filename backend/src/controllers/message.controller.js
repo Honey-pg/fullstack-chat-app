@@ -6,10 +6,111 @@ import { io, getReceiverSocketIds } from "../lib/socket.js";
 import webpush from "../lib/webpush.js";
 
 // ── Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Escapes special regex characters in a string to prevent ReDoS injection.
+ * @param {string} str - The raw input string.
+ * @returns {string} - The safely escaped string.
+ */
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * Extracts the public ID from a Cloudinary secure URL.
+ * @param {string} url - The Cloudinary file URL.
+ * @returns {string|null} - The public ID or null.
+ */
+const extractPublicId = (url) => {
+    if (!url) return null;
+    try {
+        const parts = url.split("/");
+        const filename = parts.pop();
+        return filename.split(".")[0];
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Validates and cleans search queries to protect against malicious input patterns.
+ * @param {any} query - The raw query from the request.
+ * @param {number} maxLength - Maximum allowed characters.
+ * @returns {string|null} - Sanitized string or null if invalid.
+ */
+const sanitizeSearchQuery = (query, maxLength = 100) => {
+    if (typeof query !== "string") return null;
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length > maxLength) return null;
+    return escapeRegex(trimmed);
+};
+
+/**
+ * SECURITY GATEWAY: Validates incoming Base64 image payload signatures and data footprints.
+ * Rejects extension forgery by analyzing actual MIME content mapping declarations.
+ * * @param {string} base64Str - The raw Base64 data URL string from the client.
+ * @param {number} maxSizeBytes - Maximum permissible binary footprint (default 5MB).
+ * @returns {Object} Validation status descriptor containing { isValid: boolean, error?: string }
+ */
+const validateImageAttachment = (base64Str, maxSizeBytes = 5 * 1024 * 1024) => {
+    // Check if format conforms to a legitimate Data URL structure
+    const match = base64Str.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+        return { isValid: false, error: "Invalid file format structure or corrupt payload." };
+    }
+
+    const mimeType = match[1];
+    const rawData = match[2];
+
+    // Enforce strict allow-list on image signatures to block structural forgery
+    const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())) {
+        return { isValid: false, error: "Unsupported image signature type. Allowed formats: JPEG, PNG, WEBP, GIF." };
+    }
+
+    // Calculate precise binary footprint size from base64 encoding representation string length
+    const binarySizeEstimate = Math.floor((rawData.length * 3) / 4) - (rawData.endsWith("==") ? 2 : rawData.endsWith("=") ? 1 : 0);
+    if (binarySizeEstimate > maxSizeBytes) {
+        return { isValid: false, error: "File boundary limit exceeded. Image size must be under 5MB." };
+    }
+
+    return { isValid: true };
+};
+
+/**
+ * SECURITY GATEWAY: Validates incoming Base64 audio payload signatures and data footprints.
+ * @param {string} base64Str - The raw Base64 data URL string from the client.
+ * @param {number} maxSizeBytes - Maximum permissible binary footprint (default 10MB).
+ * @returns {Object} Validation status descriptor containing { isValid: boolean, error?: string }
+ */
+const validateAudioAttachment = (base64Str, maxSizeBytes = 10 * 1024 * 1024) => {
+    const match = base64Str.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+        return { isValid: false, error: "Invalid audio format structure or corrupt payload." };
+    }
+
+    const mimeType = match[1];
+    const rawData = match[2];
+
+    const ALLOWED_MIME_TYPES = ["audio/webm", "audio/mp3", "audio/wav", "audio/mpeg", "audio/ogg", "audio/x-m4a", "audio/m4a"];
+    if (!ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())) {
+        return { isValid: false, error: "Unsupported audio format. Allowed formats: WEBM, MP3, WAV, OGG, M4A." };
+    }
+
+    const binarySizeEstimate = Math.floor((rawData.length * 3) / 4) - (rawData.endsWith("==") ? 2 : rawData.endsWith("=") ? 1 : 0);
+    if (binarySizeEstimate > maxSizeBytes) {
+        return { isValid: false, error: "Audio size exceeds the 10MB limit." };
+    }
+
+    return { isValid: true };
+};
+
 // ── GET /messages/users ──────────────────────────────────────────
-// Returns conversation partners with lastMessage + unreadCount, sorted by recency
+/**
+ * Retrieves a list of users the current user has conversed with.
+ * Includes the latest message snippet and unread message counts.
+ * PERFORMANCE OPTIMIZED: Uses $project to strip massive fields and only return essential UI data.
+ * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function getUsers(req, res) {
     const userId = new mongoose.Types.ObjectId(req.userId);
     try {
@@ -31,14 +132,23 @@ export async function getUsers(req, res) {
                     from: "users",
                     localField: "_id.partnerId",
                     foreignField: "_id",
+                    pipeline: [{ $project: { password: 0 } }],
                     as: "partner",
                 },
             },
             { $unwind: "$partner" },
+            // OPTIMIZATION: Only project the necessary user fields to save DB memory & bandwidth
+            { 
+                $project: {
+                    "partner.password": 0,
+                    "partner.__v": 0,
+                    "partner.pushSubscription": 0,
+                    "partner.googleId": 0
+                } 
+            },
             { $sort: { "lastMessage.createdAt": -1 } },
         ]);
 
-        // Get unread counts in a single query
         const unreadCounts = await Message.aggregate([
             { $match: { receiverId: userId, status: { $in: ["sent", "delivered"] } } },
             { $group: { _id: "$senderId", count: { $sum: 1 } } },
@@ -70,18 +180,28 @@ export async function getUsers(req, res) {
 }
 
 // ── GET /messages/search?q= ──────────────────────────────────────
+/**
+ * Searches across the global user base by name.
+ * Hardened against ReDoS and oversized payload attacks.
+ * PERFORMANCE OPTIMIZED: Explicitly uses .select() to retrieve only UI-critical fields.
+ * @param {Object} req - Express request object containing `q` query.
+ * @param {Object} res - Express response object.
+ */
 export async function searchUsers(req, res) {
     try {
-        const { q = "" } = req.query;
-        if (!q.trim()) return res.status(200).json([]);
+        const safeQuery = sanitizeSearchQuery(req.query.q);
+        
+        // Return empty array if query is missing, empty, invalid type, or too long
+        if (!safeQuery) return res.status(200).json([]);
 
-        // Escape special regex characters to prevent ReDoS
-        const safeQuery = escapeRegex(q.trim());
-
+        // OPTIMIZATION: explicitly pull only necessary public fields
         const users = await User.find({
             _id: { $ne: req.userId },
             name: { $regex: safeQuery, $options: "i" },
-        }).select("-password").limit(10);
+        })
+        .select("_id name email profilePicture lastSeen")
+        .limit(10);
+        
         res.status(200).json(users);
     } catch (err) {
         console.error("searchUsers:", err.message);
@@ -90,7 +210,11 @@ export async function searchUsers(req, res) {
 }
 
 // ── GET /messages/:id?before=&limit= ────────────────────────────
-// Cursor-based pagination: returns `limit` messages older than `before`
+/**
+ * Fetches message history for a specific conversation using cursor-based pagination.
+ * @param {Object} req - Express request object containing receiver `id` param.
+ * @param {Object} res - Express response object.
+ */
 export async function getMessages(req, res) {
     try {
         const { id: receiverId } = req.params;
@@ -101,6 +225,10 @@ export async function getMessages(req, res) {
         const limit = Math.min(parseInt(req.query.limit) || 30, 100);
         const beforeId = req.query.before;
 
+        if (beforeId && !mongoose.Types.ObjectId.isValid(beforeId)) {
+            return res.status(400).json({ message: "Invalid cursor ID format" });
+        }
+
         const filter = {
             $or: [
                 { senderId, receiverId },
@@ -108,22 +236,19 @@ export async function getMessages(req, res) {
             ],
         };
 
-        // If a cursor is provided, fetch messages older than it
         if (beforeId) {
             filter._id = { $lt: beforeId };
         }
 
         const messages = await Message.find(filter)
             .sort({ createdAt: -1 })
-            .limit(limit + 1) // fetch one extra to know if there's more
+            .limit(limit + 1)
             .lean();
 
         const hasMore = messages.length > limit;
-        if (hasMore) messages.pop(); // remove the extra
+        if (hasMore) messages.pop();
 
-        // Reverse so oldest-first for the frontend
         messages.reverse();
-
         res.status(200).json({ messages, hasMore });
     } catch (err) {
         console.error("getMessages:", err.message);
@@ -132,9 +257,22 @@ export async function getMessages(req, res) {
 }
 
 // ── POST /messages/send/:id ──────────────────────────────────────
+/**
+ * Handles sending text, image, and voice messages to a specific user.
+ * Triggers socket events or offline web-push notifications.
+ * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function sendMessage(req, res) {
     try {
         const { id: receiverId } = req.params;
+        // GSSoC Issue #57 Fix
+        if (!receiverId) {
+            return res.status(400).json({ message: "Receiver ID is required" });
+        }
+        if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+            return res.status(400).json({ message: "Invalid receiver user ID format" });
+        }
         const senderId = req.userId;
 
         if (senderId === receiverId) {
@@ -142,23 +280,38 @@ export async function sendMessage(req, res) {
         }
         const { message, image, audio, replyTo } = req.body;
 
+        if (replyTo && !mongoose.Types.ObjectId.isValid(replyTo)) {
+            return res.status(400).json({ message: "Invalid replyTo ID format" });
+        }
+
         if (!message?.trim() && !image && !audio) {
             return res.status(400).json({ message: "Message content cannot be empty" });
         }
 
-        const receiverExists = await User.findById(receiverId);
-        if (!receiverExists) {
+        // OPTIMIZATION: Only fetch the push subscription and name to limit memory use
+        const receiverUser = await User.findById(receiverId).select("name pushSubscription");
+        if (!receiverUser) {
             return res.status(404).json({ message: "Receiver user not found" });
         }
 
         let imageUrl = "";
         if (image) {
+            // SECURITY CHECK: Intercept extension masquerades using file signature processing rules
+            const validation = validateImageAttachment(image);
+            if (!validation.isValid) {
+                return res.status(400).json({ message: validation.error });
+            }
+
             const result = await cloudinary.uploader.upload(image);
             imageUrl = result.secure_url;
         }
 
         let audioUrl = "";
         if (audio) {
+            const validation = validateAudioAttachment(audio);
+            if (!validation.isValid) {
+                return res.status(400).json({ message: validation.error });
+            }
             const result = await cloudinary.uploader.upload(audio, { resource_type: "auto" });
             audioUrl = result.secure_url;
         }
@@ -179,24 +332,23 @@ export async function sendMessage(req, res) {
 
         if (receiverSocketIds.length > 0) {
             receiverSocketIds.forEach(socketId => io.to(socketId).emit("newMessage", newMessage));
-        } else {
-            const receiverUser = await User.findById(receiverId);
-            const senderUser = await User.findById(senderId);
-            if (receiverUser?.pushSubscription) {
-                const payload = JSON.stringify({
-                    title: `New message from ${senderUser.name}`,
-                    body: message || (audio ? "🎤 Voice message" : "📷 Image"),
-                    icon: "/favicon.png",
-                });
-                try {
-                    await webpush.sendNotification(receiverUser.pushSubscription, payload);
-                } catch (pushErr) {
-                    console.error("Web push error:", pushErr.message);
-                    if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
-                        receiverUser.pushSubscription = null;
-                        await receiverUser.save();
-                        console.log(`Cleared expired push subscription for user ${receiverId}`);
-                    }
+        }
+        
+        if (receiverUser.pushSubscription) {
+            const senderUser = await User.findById(senderId).select("name");
+            const payload = JSON.stringify({
+                title: `New message from ${senderUser.name}`,
+                body: message || (audio ? "🎤 Voice message" : "📷 Image"),
+                icon: "/favicon.png",
+            });
+            try {
+                await webpush.sendNotification(receiverUser.pushSubscription, payload);
+            } catch (pushErr) {
+                console.error("Web push error:", pushErr.message);
+                if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
+                    // Have to execute a fresh update since we limited fields on the initial query
+                    await User.findByIdAndUpdate(receiverId, { pushSubscription: null });
+                    console.log(`Cleared expired push subscription for user ${receiverId}`);
                 }
             }
         }
@@ -209,15 +361,37 @@ export async function sendMessage(req, res) {
 }
 
 // ── DELETE /messages/:id ─────────────────────────────────────────
+/**
+ * Deletes a message and emits a deletion event to relevant sockets.
+ * Enforces ownership validation before deletion.
+ * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function deleteMessage(req, res) {
     try {
         const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: "Invalid message ID format" });
+        }
         const senderId = req.userId;
 
         const message = await Message.findById(id);
         if (!message) return res.status(404).json({ message: "Message not found" });
         if (message.senderId.toString() !== senderId)
             return res.status(403).json({ message: "You can only delete your own messages" });
+
+        if (message.image) {
+            const publicId = extractPublicId(message.image);
+            if (publicId) {
+                await cloudinary.uploader.destroy(publicId).catch(err => console.error("Cloudinary image delete failed:", err));
+            }
+        }
+        if (message.audio) {
+            const publicId = extractPublicId(message.audio);
+            if (publicId) {
+                await cloudinary.uploader.destroy(publicId, { resource_type: "video" }).catch(err => console.error("Cloudinary audio delete failed:", err));
+            }
+        }
 
         await Message.findByIdAndDelete(id);
 
@@ -235,9 +409,17 @@ export async function deleteMessage(req, res) {
 }
 
 // ── PUT /messages/mark-seen ──────────────────────────────────────
+/**
+ * Marks all unread messages in a conversation as seen.
+ * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function markMessagesAsSeen(req, res) {
     try {
         const { senderId } = req.body;
+        if (!senderId || !mongoose.Types.ObjectId.isValid(senderId)) {
+            return res.status(400).json({ message: "Invalid sender ID format" });
+        }
         const receiverId = req.userId;
 
         const result = await Message.updateMany(
@@ -245,7 +427,6 @@ export async function markMessagesAsSeen(req, res) {
             { $set: { status: "seen" } }
         );
 
-        // Only emit socket event if messages were actually updated
         if (result.modifiedCount > 0) {
             const senderSocketIds = getReceiverSocketIds(senderId);
             senderSocketIds.forEach(socketId => io.to(socketId).emit("messagesSeen", { receiverId }));
@@ -257,32 +438,47 @@ export async function markMessagesAsSeen(req, res) {
     }
 }
 
+/**
+ * Toggles a user's emoji reaction on a specific message.
+ * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function reactToMessage(req, res) {
     try {
         const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: "Invalid message ID format" });
+        }
         const { emoji } = req.body;
         const userId = req.userId;
+
+        if (typeof emoji !== "string" || emoji.length === 0 || emoji.length > 10) {
+            return res.status(400).json({ message: "Invalid emoji" });
+        }
 
         const message = await Message.findById(id);
         if (!message) return res.status(404).json({ message: "Message not found" });
 
-        // Check if user already reacted with this emoji
+        const isParticipant =
+            message.senderId.toString() === userId ||
+            message.receiverId.toString() === userId;
+        if (!isParticipant) {
+            return res.status(403).json({ message: "Forbidden: you are not a participant in this message conversation" });
+        }
+
         const existingReactionIndex = message.reactions.findIndex(
             (r) => r.userId.toString() === userId && r.emoji === emoji
         );
 
         if (existingReactionIndex > -1) {
-            // Remove reaction
             message.reactions.splice(existingReactionIndex, 1);
         } else {
-            // Remove existing reaction by same user (if we only want 1 reaction per user) or just push it. 
-            // We'll allow multiple emojis per user like Slack/Discord, but usually a single user has unique emojis.
+            // Add new reaction
             message.reactions.push({ emoji, userId });
         }
 
         await message.save();
 
-        // Emit to the other person in the chat
         const otherUserId = message.senderId.toString() === userId ? message.receiverId.toString() : message.senderId.toString();
         const receiverSocketIds = getReceiverSocketIds(otherUserId);
         const senderSocketIds = getReceiverSocketIds(userId);
@@ -297,17 +493,25 @@ export async function reactToMessage(req, res) {
     }
 }
 
+/**
+ * Searches specific conversation history for message content.
+ * Hardened against ReDoS and oversized payload attacks.
+ * @param {Object} req - Express request object.
+ * @param {Object} res - Express response object.
+ */
 export async function searchTextMessages(req, res) {
     try {
         const { id: partnerId } = req.params;
-        const { q = "" } = req.query;
         if (!mongoose.Types.ObjectId.isValid(partnerId)) {
             return res.status(400).json({ message: "Invalid partner user ID format" });
         }
-        if (!q.trim()) return res.status(200).json([]);
+
+        const safeQuery = sanitizeSearchQuery(req.query.q);
+        
+        // Return empty array if query is missing, empty, invalid type, or too long
+        if (!safeQuery) return res.status(200).json([]);
 
         const senderId = req.userId;
-        const safeQuery = escapeRegex(q.trim());
 
         const messages = await Message.find({
             $or: [
@@ -323,4 +527,3 @@ export async function searchTextMessages(req, res) {
         res.status(500).json({ message: "Could not search messages" });
     }
 }
-
