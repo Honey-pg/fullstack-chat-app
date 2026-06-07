@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Search, PenSquare, MonitorSmartphone } from "lucide-react"
+import { Search, PenSquare, MonitorSmartphone, Palette } from "lucide-react"
 import useChatStore from "../../src/store/useChatStore"
 import useAuthStore from "../../src/store/useAuthStore"
 import { getSocket } from "../../lib/socket"
