@@ -21,6 +21,7 @@ import EmojiPicker from "./EmojiPicker"
 import MessageBubble from "./MessageBubble"
 import SmartReplySuggestions from "./SmartReplySuggestions"
 import ScheduleMessageModal from "./ScheduleMessageModal"
+import { getStatusMoodLabel } from "../../src/lib/statusMoods"
 
 const formatRecordingTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`
 
@@ -447,6 +448,11 @@ const mediaMessages = messages.filter(
                 <Avatar user={selectedUser} isOnline={isOnline} />
                 <div>
                     <p className="font-semibold text-sm">{selectedUser.name}</p>
+                    {selectedUser.statusMood ? (
+                        <p className="text-xs text-base-content/60">
+                            {getStatusMoodLabel(selectedUser.statusMood)}
+                        </p>
+                    ) : null}
                     <p className={`text-xs ${isOnline ? "text-success font-medium" : "text-base-content/70"}`}>
                         {typingUsers.includes(selectedUser._id) ? (
                             <span className="text-success font-bold animate-pulse inline-block">typing...</span>

@@ -322,6 +322,21 @@ const useChatStore = create((set, get) => ({
                 ),
             }));
         });
+
+        socket.on("statusMoodUpdated", ({ userId, statusMood }) => {
+            const authUser = useAuthStore.getState().authUser;
+            if (authUser?._id === userId) {
+                useAuthStore.setState({ authUser: { ...authUser, statusMood } });
+            }
+            set((state) => ({
+                users: state.users.map((user) =>
+                    user._id === userId ? { ...user, statusMood } : user
+                ),
+                selectedUser: state.selectedUser?._id === userId
+                    ? { ...state.selectedUser, statusMood }
+                    : state.selectedUser,
+            }));
+        });
     },
 
     /**

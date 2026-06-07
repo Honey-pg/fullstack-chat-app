@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import crypto from "crypto";
 import connectDB from "./lib/db.js";
 import authRoutes from "./routes/auth.route.js";
+import userRoutes from "./routes/user.route.js";
 import messageRoutes from "./routes/message.route.js";
 import analyticsRoutes from "./routes/analytics.route.js";
 import scheduledMessageRoutes from "./routes/scheduledMessage.route.js";
@@ -102,6 +103,7 @@ const messageLimiter = rateLimit({
 
 // Primary Endpoint Route Mappings
 app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/users", authLimiter, userRoutes);
 app.use("/api/messages", messageLimiter, messageRoutes);
 app.use("/api/messages", messageLimiter, scheduledMessageRoutes);
 app.use("/api/analytics", analyticsRoutes);
