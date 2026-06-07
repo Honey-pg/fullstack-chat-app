@@ -18,6 +18,7 @@ import ContextMenu from "./ContextMenu"
 import ReplyBar from "./ReplyBar"
 import EmojiPicker from "./EmojiPicker"
 import MessageBubble from "./MessageBubble"
+import NewChatModal from "./NewChatModal"
 
 const formatRecordingTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`
 
@@ -62,6 +63,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const [showNotes, setShowNotes] = useState(false)
     const [sharedNotes, setSharedNotes] = useState("")
     const [showGallery, setShowGallery] = useState(false)
+    const [showNewChatModal, setShowNewChatModal] = useState(false);
 
     // Search state
     const [searchOpen, setSearchOpen] = useState(false)
@@ -76,6 +78,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
             return;
         }
         const timer = setTimeout(async () => {
+            if (!selectedUser?._id) return;
     const results = await searchTextMessages(
         selectedUser._id,
         searchQuery
@@ -218,13 +221,19 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const handleDelete = async () => { await deleteMessage(contextMenu.message._id); closeMenu() }
     const handleReact = (messageId, emoji) => { addReaction(messageId, emoji) }
 
-    const handleImage = (e) => {
-        const file = e.target.files[0]
-        if (!file) return
-        const reader = new FileReader()
-        reader.onloadend = () => { setImagePreview(URL.createObjectURL(file)); setImageBase64(reader.result) }
-        reader.readAsDataURL(file)
+   const handleImage = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+
+    reader.onloadend = () => {
+        setImagePreview(URL.createObjectURL(file))
+        setImageBase64(reader.result)
     }
+
+    reader.readAsDataURL(file)
+}
 
     const handleSend = async () => {
         if (!text.trim() && !imageBase64 && !audioBase64) return
@@ -248,7 +257,13 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
         clearAudio()
         setReplyTo(null)
 
-        await sendMessage(payload)
+       try {
+   await sendMessage(payload)
+} catch (err) {
+   toast.error("Failed to send")
+} finally {
+   setSending(false)
+}
         
         setSending(false)
     }
@@ -293,6 +308,7 @@ const mediaMessages = messages.filter(
     const sharedMedia = messages.filter(msg => msg.image)
 
     if (!selectedUser) return (
+        <>
     <div className={`${isMobileHidden ? "hidden md:flex" : "flex"} flex-1 flex-col items-center justify-center bg-base-100 transition-colors duration-300`}>
         <div className="w-full h-full flex-1 text-base-content flex flex-col items-center justify-start py-6 px-6 font-sans antialiased overflow-y-auto selection:bg-primary/20">
       
@@ -304,7 +320,8 @@ const mediaMessages = messages.filter(
                 </div>
                 {/* Fixed the crash by using a safe optional check or inline handler */}
                 <button 
-                    onClick={() => typeof onNewChat === 'function' ? onNewChat() : toast.success("Starting a fresh session...")} 
+                    // onClick={() => typeof onNewChat === 'function' ? onNewChat() : toast.success("Starting a fresh session...")} 
+                    onClick={() => setShowNewChatModal(true)}
                     className="hover:text-primary transition-colors cursor-pointer text-base-content/60"
                 >
                     + New chat
@@ -385,6 +402,17 @@ const mediaMessages = messages.filter(
             </div>
         </div>
     </div>
+
+    {showNewChatModal && (
+    <NewChatModal
+        onClose={() => setShowNewChatModal(false)}
+        onSelectUser={(user) => {
+            // open selected chat
+            console.log(user);
+        }}
+    />
+)}
+</>
 )
 
     return (
@@ -703,12 +731,7 @@ const mediaMessages = messages.filter(
                             <Image className="w-4 h-4 text-base-content/50" />
                         </button>
                         <input type="file" ref={fileRef} accept="image/*" className="hidden" onChange={handleImage} />
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setShowEmoji(v => !v) }}
-                            className={`btn btn-ghost btn-sm btn-square shrink-0 ${showEmoji ? "text-primary" : "text-base-content/50"}`}
-                            title="Emoji"
-                        >
-                            <button
+                       <button
     onClick={() =>
         toast.success("Message scheduling coming soon!")
     }
@@ -717,8 +740,19 @@ const mediaMessages = messages.filter(
 >
     <Clock className="w-4 h-4 text-base-content/50" />
 </button>
-                            <Smile className="w-4 h-4" />
-                        </button>
+
+<button
+    onClick={(e) => {
+        e.stopPropagation();
+        setShowEmoji((v) => !v);
+    }}
+    className={`btn btn-ghost btn-sm btn-square shrink-0 ${
+        showEmoji ? "text-primary" : "text-base-content/50"
+    }`}
+    title="Emoji"
+>
+    <Smile className="w-4 h-4" />
+</button>
                         <textarea
                             ref={textareaRef}
                             rows={1}
