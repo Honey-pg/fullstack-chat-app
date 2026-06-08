@@ -3,6 +3,7 @@ import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { io, getReceiverSocketIds } from "../lib/socket.js";
+import getSmartReplies from "../lib/smartReplies.js";
 import webpush from "../lib/webpush.js";
 import { catchAsync } from "../lib/utils.js";
 
@@ -161,6 +162,7 @@ export const getUsers = catchAsync(async (req, res) => {
             email: partner.email,
             profilePicture: partner.profilePicture,
             lastSeen: partner.lastSeen,
+            statusMood: partner.statusMood || null,
             lastMessage: {
                 _id: lastMessage._id,
                 message: lastMessage.message,
@@ -241,6 +243,41 @@ export const getMessages = catchAsync(async (req, res) => {
         messages.reverse();
         res.status(200).json({ messages, hasMore });
 });
+
+// ── GET /messages/suggestions/:messageId ─────────────────────────
+/**
+ * Returns quick reply suggestions for an incoming message.
+ * Only the sender or receiver of the message may request suggestions.
+ */
+export async function getMessageSuggestions(req, res) {
+    try {
+        const { messageId } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(messageId)) {
+            return res.status(400).json({ message: "Invalid message ID format" });
+        }
+
+        const message = await Message.findById(messageId).lean();
+        if (!message) {
+            return res.status(404).json({ message: "Message not found" });
+        }
+
+        const currentUserId = req.userId?.toString();
+        const isParticipant = [message.senderId?.toString(), message.receiverId?.toString()].includes(currentUserId);
+        if (!isParticipant) {
+            return res.status(403).json({ message: "Not authorized to view suggestions for this message" });
+        }
+
+        if (message.senderId?.toString() === currentUserId) {
+            return res.status(200).json({ suggestions: [] });
+        }
+
+        const suggestions = getSmartReplies(message.message || "");
+        res.status(200).json({ suggestions });
+    } catch (err) {
+        console.error("getMessageSuggestions:", err.message);
+        res.status(500).json({ message: "Could not load suggestions" });
+    }
+}
 
 // ── POST /messages/send/:id ──────────────────────────────────────
 /**
