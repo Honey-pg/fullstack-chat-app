@@ -19,6 +19,7 @@ import ReplyBar from "./ReplyBar"
 import EmojiPicker from "./EmojiPicker"
 import MessageBubble from "./MessageBubble"
 import NewChatModal from "./NewChatModal"
+import imageCompression from "browser-image-compression";
 
 const formatRecordingTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`
 
@@ -70,6 +71,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const [searchQuery, setSearchQuery] = useState("")
     const [searchResults, setSearchResults] = useState([])
     const [recentSearches, setRecentSearches] = useState([])
+    const [processingImage, setProcessingImage] = useState(false);
 
     // Debounced search trigger
     useEffect(() => {
@@ -221,19 +223,47 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const handleDelete = async () => { await deleteMessage(contextMenu.message._id); closeMenu() }
     const handleReact = (messageId, emoji) => { addReaction(messageId, emoji) }
 
-   const handleImage = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
+const handleImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const reader = new FileReader()
+    const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 
-    reader.onloadend = () => {
-        setImagePreview(URL.createObjectURL(file))
-        setImageBase64(reader.result)
+    if (file.size > MAX_SIZE) {
+        toast.error("Image must be smaller than 5MB");
+        return;
     }
 
-    reader.readAsDataURL(file)
-}
+    try {
+        setProcessingImage(true);
+
+        const compressedFile = await imageCompression(file, {
+            maxSizeMB: 1,
+            maxWidthOrHeight: 1920,
+            useWebWorker: true,
+        });
+
+        const reader = new FileReader();
+
+        reader.onloadend = () => {
+            setImagePreview(URL.createObjectURL(compressedFile));
+            setImageBase64(reader.result);
+            setProcessingImage(false);
+        };
+
+        reader.onerror = () => {
+            setProcessingImage(false);
+            toast.error("Failed to read image");
+        };
+
+        reader.readAsDataURL(compressedFile);
+
+    } catch (error) {
+        console.error(error);
+        setProcessingImage(false);
+        toast.error("Failed to process image");
+    }
+};
 
     const handleSend = async () => {
         if (!text.trim() && !imageBase64 && !audioBase64) return
@@ -264,8 +294,6 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
 } finally {
    setSending(false)
 }
-        
-        setSending(false)
     }
 
     const handleTyping = (e) => {
@@ -727,10 +755,18 @@ const mediaMessages = messages.filter(
                 ) : (
                     <>
                         <button onClick={() => fileRef.current?.click()}
+                         disabled={processingImage}
                             className="btn btn-ghost btn-sm btn-square shrink-0" title="Attach image">
                             <Image className="w-4 h-4 text-base-content/50" />
                         </button>
-                        <input type="file" ref={fileRef} accept="image/*" className="hidden" onChange={handleImage} />
+                       <input
+    type="file"
+    ref={fileRef}
+    accept="image/*"
+    className="hidden"
+    onChange={handleImage}
+    disabled={processingImage}
+/>
                        <button
     onClick={() =>
         toast.success("Message scheduling coming soon!")
@@ -740,6 +776,13 @@ const mediaMessages = messages.filter(
 >
     <Clock className="w-4 h-4 text-base-content/50" />
 </button>
+
+{processingImage && (
+    <div className="flex items-center gap-2 text-xs text-primary">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Compressing image...
+    </div>
+)}
 
 <button
     onClick={(e) => {
