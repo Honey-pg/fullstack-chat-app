@@ -3,7 +3,7 @@ import {
     Image, Images, Send, X, MessageSquare,
     ArrowLeft, Smile, Mic, Square,Loader2, 
     Phone, Video, Trash2,Search, FileText,
-    NotebookPen, BarChart3, Sparkles, PenTool, Compass
+    NotebookPen, BarChart3, Sparkles, PenTool, Compass, Clock
 } from "lucide-react"
 import toast from "react-hot-toast"
 import useAuthStore from "../../src/store/useAuthStore"
@@ -19,6 +19,7 @@ import ContextMenu from "./ContextMenu"
 import ReplyBar from "./ReplyBar"
 import EmojiPicker from "./EmojiPicker"
 import MessageBubble from "./MessageBubble"
+import NewChatModal from "./NewChatModal"
 import SmartReplySuggestions from "./SmartReplySuggestions"
 import ScheduleMessageModal from "./ScheduleMessageModal"
 import { getStatusMoodLabel } from "../../src/lib/statusMoods"
@@ -70,6 +71,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const [showNotes, setShowNotes] = useState(false)
     const [sharedNotes, setSharedNotes] = useState("")
     const [showGallery, setShowGallery] = useState(false)
+    const [showNewChatModal, setShowNewChatModal] = useState(false);
 
     // Search state
     const [searchOpen, setSearchOpen] = useState(false)
@@ -84,6 +86,7 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
             return;
         }
         const timer = setTimeout(async () => {
+            if (!selectedUser?._id) return;
     const results = await searchTextMessages(
         selectedUser._id,
         searchQuery
@@ -267,13 +270,19 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
     const handleDelete = async () => { await deleteMessage(contextMenu.message._id); closeMenu() }
     const handleReact = (messageId, emoji) => { addReaction(messageId, emoji) }
 
-    const handleImage = (e) => {
-        const file = e.target.files[0]
-        if (!file) return
-        const reader = new FileReader()
-        reader.onloadend = () => { setImagePreview(URL.createObjectURL(file)); setImageBase64(reader.result) }
-        reader.readAsDataURL(file)
+   const handleImage = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+
+    reader.onloadend = () => {
+        setImagePreview(URL.createObjectURL(file))
+        setImageBase64(reader.result)
     }
+
+    reader.readAsDataURL(file)
+}
 
     const handleSend = async () => {
         if (!text.trim() && !imageBase64 && !audioBase64) return
@@ -297,7 +306,13 @@ export default function ChatWindow({ selectedUser, onBack, isMobileHidden }) {
         clearAudio()
         setReplyTo(null)
 
-        await sendMessage(payload)
+       try {
+   await sendMessage(payload)
+} catch (err) {
+   toast.error("Failed to send")
+} finally {
+   setSending(false)
+}
         
         setSending(false)
     }
@@ -342,6 +357,7 @@ const mediaMessages = messages.filter(
     const sharedMedia = messages.filter(msg => msg.image)
 
     if (!selectedUser) return (
+        <>
     <div className={`${isMobileHidden ? "hidden md:flex" : "flex"} flex-1 flex-col items-center justify-center bg-base-100 transition-colors duration-300`}>
         <div className="w-full h-full flex-1 text-base-content flex flex-col items-center justify-start py-6 px-6 font-sans antialiased overflow-y-auto selection:bg-primary/20">
       
@@ -353,7 +369,8 @@ const mediaMessages = messages.filter(
                 </div>
                 {/* Fixed the crash by using a safe optional check or inline handler */}
                 <button 
-                    onClick={() => typeof onNewChat === 'function' ? onNewChat() : toast.success("Starting a fresh session...")} 
+                    // onClick={() => typeof onNewChat === 'function' ? onNewChat() : toast.success("Starting a fresh session...")} 
+                    onClick={() => setShowNewChatModal(true)}
                     className="hover:text-primary transition-colors cursor-pointer text-base-content/60"
                 >
                     + New chat
@@ -434,6 +451,17 @@ const mediaMessages = messages.filter(
             </div>
         </div>
     </div>
+
+    {showNewChatModal && (
+    <NewChatModal
+        onClose={() => setShowNewChatModal(false)}
+        onSelectUser={(user) => {
+            // open selected chat
+            console.log(user);
+        }}
+    />
+)}
+</>
 )
 
     return (
@@ -512,6 +540,7 @@ const mediaMessages = messages.filter(
     title="Generate Conversation Summary"
 >
     <FileText className="w-5 h-5" />
+    </button>
     <button
     onClick={() => setShowNotes(!showNotes)}
     className={`btn btn-ghost btn-circle btn-sm ${
@@ -520,7 +549,7 @@ const mediaMessages = messages.filter(
     title="Shared Notes"
 >
     <NotebookPen className="w-5 h-5" />
-</button>
+
 </button>
                 </div>
             </div>
